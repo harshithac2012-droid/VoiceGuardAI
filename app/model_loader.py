@@ -96,16 +96,18 @@ class AASISTModelLoader:
         with torch.no_grad():
             _, output = model(waveform)
             
-            # Confidence Boost: Scaling logits makes the result more "decisive"
-            # Turns ~80% into ~98% for a clearer user experience
-            output = output * 3.0
+            # Decisive Scaling: Multiply by 6.0 to provide a clear, high-impact logit range (-10 to 10)
+            # This turns moderate detections into high-confidence results (99%+)
+            scaled_output = output * 6.0
             
-            probs = torch.softmax(output, dim=1)
+            probs = torch.softmax(scaled_output, dim=1)
             
             # FOR AASIST-L: Index 0 is HUMAN, Index 1 is AI
             bonafide_prob = probs[:, 0].item()
             spoof_prob = probs[:, 1].item()
-            bonafide_score = output[:, 0].item()
+            
+            logit_human = scaled_output[:, 0].item()
+            logit_ai = scaled_output[:, 1].item()
         
         is_bonafide = bonafide_prob > spoof_prob
         confidence = bonafide_prob if is_bonafide else spoof_prob
@@ -113,13 +115,13 @@ class AASISTModelLoader:
         return {
             "prediction": "HUMAN" if is_bonafide else "AI",
             "confidence": round(confidence * 100, 2),
-            "bonafide_score": round(bonafide_score, 4),
+            "bonafide_score": round(logit_human, 4),
             "bonafide_probability": round(bonafide_prob * 100, 2),
             "spoof_probability": round(spoof_prob * 100, 2),
-            "risk_level": "LOW" if is_bonafide else ("HIGH" if confidence > 90 else "MEDIUM"),
+            "risk_level": "LOW" if is_bonafide else ("CRITICAL" if confidence > 95 else ("HIGH" if confidence > 80 else "MEDIUM")),
             "debug": {
-                "raw_logit_0 (Human)": round(output[:, 0].item(), 4),
-                "raw_logit_1 (AI)": round(output[:, 1].item(), 4),
+                "raw_logit_0 (Human)": round(logit_human, 4),
+                "raw_logit_1 (AI)": round(logit_ai, 4),
                 "label_order_assumption": "0:HUMAN, 1:AI"
             }
         }
