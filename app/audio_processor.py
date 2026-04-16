@@ -114,15 +114,7 @@ class AudioProcessor:
             )
             waveform = resampler(waveform)
             
-        # 1. Forensic Cleaning
-        waveform = self.apply_high_pass(waveform, self.target_sr, cutoff=80.0)
-        waveform = self.apply_pre_emphasis(waveform)
-        
-        # 2. Safe Normalization: -3dB Headroom to prevent clipping
-        max_val = torch.max(torch.abs(waveform))
-        if max_val > 1e-8:
-            waveform = (waveform / max_val) * 0.707
-            
+        # Forensic Raw Mode: No normalization or filters
         waveform = self._pad_or_trim(waveform)
         return waveform.squeeze(0)
     
@@ -160,8 +152,6 @@ class AudioProcessor:
         if sample_rate != self.target_sr:
             resampler = torchaudio.transforms.Resample(sample_rate, self.target_sr)
             waveform = resampler(waveform)
-        
-        waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
         
         total_samples = waveform.shape[-1]
         chunks = []

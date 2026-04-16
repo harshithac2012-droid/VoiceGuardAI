@@ -154,6 +154,10 @@ async def predict_voice(file: UploadFile = File(...)):
         if not audio_bytes:
             raise HTTPException(status_code=400, detail="Empty audio file")
             
+        # Diagnostics: Save the file so we can run the truth-test script
+        with open("last_upload.wav", "wb") as f:
+            f.write(audio_bytes)
+            
         waveform = audio_processor.process_bytes(audio_bytes, suffix=suffix)
         
         # VAD - Silence Check

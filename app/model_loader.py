@@ -96,18 +96,14 @@ class AASISTModelLoader:
         with torch.no_grad():
             _, output = model(waveform)
             
-            # Decisive Scaling: Multiply by 6.0 to provide a clear, high-impact logit range (-10 to 10)
-            # This turns moderate detections into high-confidence results (99%+)
-            scaled_output = output * 6.0
-            
-            probs = torch.softmax(scaled_output, dim=1)
+            probs = torch.softmax(output, dim=1)
             
             # FOR AASIST-L: Index 0 is HUMAN, Index 1 is AI
             bonafide_prob = probs[:, 0].item()
             spoof_prob = probs[:, 1].item()
             
-            logit_human = scaled_output[:, 0].item()
-            logit_ai = scaled_output[:, 1].item()
+            logit_human = output[:, 0].item()
+            logit_ai = output[:, 1].item()
         
         is_bonafide = bonafide_prob > spoof_prob
         confidence = bonafide_prob if is_bonafide else spoof_prob
