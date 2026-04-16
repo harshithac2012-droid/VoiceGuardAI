@@ -14,7 +14,7 @@ class Settings:
     AASIST_DIR: str = os.getenv("AASIST_DIR", "./aasist")
     
     # Model variant: "AASIST" (full) or "AASIST-L" (lightweight)
-    MODEL_VARIANT: str = os.getenv("MODEL_VARIANT", "AASIST")
+    MODEL_VARIANT: str = os.getenv("MODEL_VARIANT", "AASIST-L")
     
     # Device: "cuda" or "cpu" (auto-detected if not set)
     DEVICE: str = os.getenv(

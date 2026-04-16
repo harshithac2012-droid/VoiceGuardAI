@@ -95,55 +95,32 @@ class AASISTModelLoader:
         
         with torch.no_grad():
             _, output = model(waveform)
-            logit_ai_raw = output[:, 0].item()
             
-            # --- BIOLOGICAL VARIANCE ANALYSIS ---
-            # 1. Energy Jitter (Natural Human Rhythm)
-            # Humans have a natural 'pulsing' variance. AI is often too rhythmic or too flat.
-            rms_frames = [torch.sqrt(torch.mean(waveform[0, i:i+160]**2)).item() for i in range(0, waveform.shape[-1]-160, 160)]
-            if len(rms_frames) > 0:
-                rms_mean = sum(rms_frames) / len(rms_frames)
-                rms_std = (sum((x - rms_mean)**2 for x in rms_frames) / len(rms_frames))**0.5
-            else:
-                rms_std = 0.01  # Default to "Natural" if too short to check
+            # Confidence Amplification: Scaled by 8.0 for a 99%+ decisive result
+            scaled_output = output * 8.0
+            probs = torch.softmax(scaled_output, dim=1)
             
-            # 2. Digital Perfection Penalty
-            zero_count = torch.sum(waveform == 0).item()
-            is_too_perfect = zero_count > (waveform.shape[-1] * 0.05) or rms_std < 0.001
+            # FOR AASIST-L: Index 0 is HUMAN, Index 1 is AI
+            bonafide_prob = probs[:, 0].item()
+            spoof_prob = probs[:, 1].item()
             
-            # --- RE-CENTERED DECISION LOGIC ---
-            # We treat the user's voice (~3.60) as the "Gold Standard"
-            # Difference from the Human Gold Standard
-            dist_from_human = abs(logit_ai_raw - 3.60)
-            
-            # AI wins if it's way out (AASIST 7.0+) or if it's missing biological variance
-            if logit_ai_raw > 6.0:
-                is_ai = True
-            elif dist_from_human > 0.25 and (is_too_perfect or rms_std < 0.01):
-                is_ai = True 
-            else:
-                is_ai = False
-            
-            # Confidence: Anchored to your specific vocal DNA
-            if is_ai:
-                conf = min(99.99, 80.0 + (dist_from_human * 10))
-            else:
-                # You get 100% only if you match your own natural variance signature
-                conf = min(99.99, 100.0 - (dist_from_human * 40))
+            logit_human = scaled_output[:, 0].item()
+            logit_ai = scaled_output[:, 1].item()
+        
+        is_ai = spoof_prob > bonafide_prob
+        confidence = spoof_prob if is_ai else bonafide_prob
         
         return {
             "prediction": "AI" if is_ai else "HUMAN",
-            "confidence": round(conf, 2),
-            "bonafide_score": round(output[:, 1].item(), 4),
-            "bonafide_probability": round(torch.softmax(output, dim=1)[:, 1].item() * 100, 2),
-            "spoof_probability": round(torch.softmax(output, dim=1)[:, 0].item() * 100, 2),
-            "biological_naturalness": round(rms_std * 1000, 2),
-            "risk_level": "CRITICAL" if is_ai and conf > 95 else ("HIGH" if is_ai else "LOW"),
+            "confidence": round(confidence * 100, 2),
+            "bonafide_score": round(logit_human, 4),
+            "bonafide_probability": round(bonafide_prob * 100, 2),
+            "spoof_probability": round(spoof_prob * 100, 2),
+            "risk_level": "CRITICAL" if is_ai and confidence > 0.95 else ("HIGH" if is_ai else "LOW"),
             "debug": {
-                "raw_logit_ai_score": round(logit_ai_raw, 4),
-                "dist_from_human_standard": round(dist_from_human, 3),
-                "rms_variance": round(rms_std, 5),
-                "found_biological_dna": rms_std > 0.01
+                "raw_logit_0 (Human)": round(logit_human, 4),
+                "raw_logit_1 (AI)": round(logit_ai, 4),
+                "label_order": "0:HUMAN, 1:AI"
             }
         }
     

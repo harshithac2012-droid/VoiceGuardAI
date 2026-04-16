@@ -32,7 +32,7 @@ def calculate_tDCF_EER(cm_scores_file,
 
     # Load organizers' ASV scores
     asv_data = np.genfromtxt(asv_score_file, dtype=str)
-    # asv_sources = asv_data[:, 0]
+    # assv_sources = asv_data[:, 0]
     asv_keys = asv_data[:, 1]
     asv_scores = asv_data[:, 2].astype(np.float)
 
