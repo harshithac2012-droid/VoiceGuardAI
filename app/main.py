@@ -181,8 +181,10 @@ async def predict_voice(file: UploadFile = File(...)):
         result = model_loader.predict(waveform)
         analysis, recs = generate_review(result)
     except Exception as e:
-        print(f"Error during prediction: {e}")
-        raise HTTPException(status_code=500, detail=f"Inference failed: {str(e)}")
+        import traceback
+        err_msg = traceback.format_exc()
+        print(err_msg)
+        raise HTTPException(status_code=500, detail=err_msg)
     
     elapsed_ms = (time.time() - start_time) * 1000
     

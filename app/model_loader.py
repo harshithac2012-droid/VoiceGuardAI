@@ -135,6 +135,8 @@ class AASISTModelLoader:
             "prediction": "AI" if is_ai else "HUMAN",
             "confidence": round(conf, 2),
             "bonafide_score": round(output[:, 1].item(), 4),
+            "bonafide_probability": round(torch.softmax(output, dim=1)[:, 1].item() * 100, 2),
+            "spoof_probability": round(torch.softmax(output, dim=1)[:, 0].item() * 100, 2),
             "biological_naturalness": round(rms_std * 1000, 2),
             "risk_level": "CRITICAL" if is_ai and conf > 95 else ("HIGH" if is_ai else "LOW"),
             "debug": {
