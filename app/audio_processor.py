@@ -17,6 +17,7 @@ import torchaudio
 
 TARGET_SAMPLE_RATE = 16000
 TARGET_NUM_SAMPLES = 64600  # ~4.03 seconds at 16kHz
+SILENCE_THRESHOLD = 0.001    # Root Mean Square (RMS) energy threshold
 
 
 class AudioProcessor:
@@ -26,9 +27,21 @@ class AudioProcessor:
         self,
         target_sr: int = TARGET_SAMPLE_RATE,
         target_length: int = TARGET_NUM_SAMPLES,
+        silence_threshold: float = SILENCE_THRESHOLD,
     ):
         self.target_sr = target_sr
         self.target_length = target_length
+        self.silence_threshold = silence_threshold
+
+    @staticmethod
+    def get_rms_energy(waveform: torch.Tensor) -> float:
+        """Calculates the RMS energy of a waveform."""
+        return torch.sqrt(torch.mean(waveform**2)).item()
+
+    def is_silent(self, waveform: torch.Tensor) -> bool:
+        """Checks if a waveform is considered silent based on energy."""
+        energy = self.get_rms_energy(waveform)
+        return energy < self.silence_threshold
     
     def process_bytes(self, audio_bytes: bytes, suffix: str = ".wav") -> torch.Tensor:
         """

@@ -57,12 +57,13 @@ app.add_middleware(
 
 
 class PredictionResult(BaseModel):
-    result: str              # "HUMAN" or "AI"
-    verdict: str             # "LEGITIMATE" or "SPAM/AI"
+    result: str              # "HUMAN", "AI", or "INAUDIBLE"
+    verdict: str             # "LEGITIMATE", "SPAM/AI", or "INAUDIBLE"
     is_legitimate: bool
+    is_inaudible: bool = False
     confidence: float        # 0-100 percentage
     accuracy: float          # Proxy for confidence
-    risk_level: str          # LOW / MEDIUM / HIGH / CRITICAL
+    risk_level: str          # LOW / MEDIUM / HIGH / CRITICAL / NONE
     bonafide_probability: float
     spoof_probability: float
     technical_analysis: list[str]  # Detailed review points
@@ -74,6 +75,7 @@ class MultiChunkResult(BaseModel):
     overall_result: str
     overall_verdict: str
     is_legitimate: bool
+    is_inaudible: bool = False
     overall_confidence: float
     accuracy: float
     risk_level: str
@@ -92,13 +94,18 @@ class HealthResponse(BaseModel):
 
 def generate_review(result: dict) -> tuple[list[str], list[str]]:
     """Generates technical analysis and recommendations based on model results."""
-    is_ai = result["prediction"] == "AI"
-    conf = result["confidence"]
+    prediction = result.get("prediction")
+    conf = result.get("confidence", 0)
     
     analysis = []
     recs = []
     
-    if is_ai:
+    if prediction == "INAUDIBLE":
+        analysis.append("Audio sample contains no audible speech or contains only background noise.")
+        recs.append("Ensure the microphone is properly connected and the person is speaking clearly.")
+        return analysis, recs
+
+    is_ai = prediction == "AI"
         analysis.append("Detected high-frequency spectral artifacts consistent with AI synthesis engines.")
         analysis.append("Inconsistent vocal tract resonance patterns found in temporal graph analysis.")
         if conf > 90:
@@ -146,6 +153,25 @@ async def predict_voice(file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Empty audio file")
             
         waveform = audio_processor.process_bytes(audio_bytes, suffix=suffix)
+        
+        # VAD - Silence Check
+        if audio_processor.is_silent(waveform):
+            analysis, recs = generate_review({"prediction": "INAUDIBLE"})
+            return PredictionResult(
+                result="INAUDIBLE",
+                verdict="INAUDIBLE",
+                is_legitimate=False,
+                is_inaudible=True,
+                confidence=0.0,
+                accuracy=0.0,
+                risk_level="NONE",
+                bonafide_probability=0.0,
+                spoof_probability=0.0,
+                technical_analysis=analysis,
+                recommendations=recs,
+                analysis_time_ms=round((time.time() - start_time) * 1000, 2),
+            )
+            
         result = model_loader.predict(waveform)
         analysis, recs = generate_review(result)
     except Exception as e:
@@ -183,36 +209,84 @@ async def predict_voice_multi(file: UploadFile = File(...)):
         chunks = audio_processor.process_multiple_chunks(audio_bytes, suffix=suffix)
         
         chunk_results = []
-        spoof_votes = 0
+        suspicious_segments = []
+        max_spoof_prob = 0.0
         total_spoof_prob = 0.0
+        audible_chunks = 0
         
         for i, chunk in enumerate(chunks):
+            start_sec = i * 4
+            end_sec = (i + 1) * 4
+            
+            # Silence check for this chunk
+            if audio_processor.is_silent(chunk):
+                chunk_results.append({
+                    "chunk_index": i,
+                    "timestamp": f"{start_sec}s - {end_sec}s",
+                    "prediction": "INAUDIBLE",
+                    "confidence": 0.0
+                })
+                continue
+            
+            audible_chunks += 1
             res = model_loader.predict(chunk)
+            
+            # Record result
             chunk_results.append({
                 "chunk_index": i,
+                "timestamp": f"{start_sec}s - {end_sec}s",
                 "prediction": res["prediction"],
                 "confidence": res["confidence"]
             })
-            if res["prediction"] == "AI":
-                spoof_votes += 1
-            total_spoof_prob += res["spoof_probability"]
             
-        avg_spoof_prob = total_spoof_prob / len(chunks)
-        overall_is_spoof = spoof_votes > (len(chunks) / 2)
-        overall_conf = avg_spoof_prob if overall_is_spoof else (100 - avg_spoof_prob)
+            # Aggregation logic
+            total_spoof_prob += res["spoof_probability"]
+            if res["spoof_probability"] > max_spoof_prob:
+                max_spoof_prob = res["spoof_probability"]
+            
+            # Track specifically suspicious parts
+            if res["prediction"] == "AI" and res["confidence"] > 60:
+                suspicious_segments.append(f"{start_sec}s - {end_sec}s")
         
-        # Risk level
-        if avg_spoof_prob >= 90: risk = "CRITICAL"
-        elif avg_spoof_prob >= 70: risk = "HIGH"
-        elif avg_spoof_prob >= 40: risk = "MEDIUM"
+        if audible_chunks == 0:
+            analysis, recs = generate_review({"prediction": "INAUDIBLE"})
+            return MultiChunkResult(
+                overall_result="INAUDIBLE",
+                overall_verdict="INAUDIBLE",
+                is_legitimate=False,
+                is_inaudible=True,
+                overall_confidence=0.0,
+                accuracy=0.0,
+                risk_level="NONE",
+                chunks_analyzed=len(chunks),
+                technical_analysis=analysis,
+                recommendations=recs,
+                chunk_results=chunk_results,
+                analysis_time_ms=round((time.time() - start_time) * 1000, 2),
+            )
+            
+        avg_spoof_prob = total_spoof_prob / audible_chunks
+        
+        # SECURITY-FIRST LOGIC:
+        # If any segment is clearly AI, the whole call is flagged.
+        is_suspicious = len(suspicious_segments) > 0
+        overall_is_spoof = is_suspicious or (avg_spoof_prob > 50)
+        overall_conf = max_spoof_prob if overall_is_spoof else (100 - avg_spoof_prob)
+        
+        # Risk level based on the MOST suspicious part found
+        if max_spoof_prob >= 90: risk = "CRITICAL"
+        elif max_spoof_prob >= 70: risk = "HIGH"
+        elif is_suspicious: risk = "MEDIUM"
         else: risk = "LOW"
         
-        # Generate summary review based on overall result
+        # Generate summary review
         overall_result_dict = {
             "prediction": "AI" if overall_is_spoof else "HUMAN",
             "confidence": round(overall_conf, 2)
         }
         analysis, recs = generate_review(overall_result_dict)
+        if is_suspicious:
+            analysis.insert(0, f"DANGER: AI injection detected at segments: {', '.join(suspicious_segments[:3])}...")
         
     except Exception as e:
         print(f"Error during multi-prediction: {e}")
@@ -220,11 +294,10 @@ async def predict_voice_multi(file: UploadFile = File(...)):
         
     elapsed_ms = (time.time() - start_time) * 1000
     
-    is_legit = not overall_is_spoof
     return MultiChunkResult(
         overall_result="AI" if overall_is_spoof else "HUMAN",
-        overall_verdict="LEGITIMATE" if is_legit else "SPAM/AI",
-        is_legitimate=is_legit,
+        overall_verdict="ACTION REQUIRED: AI DETECTED" if is_suspicious else ("LEGITIMATE" if not overall_is_spoof else "SPAM/AI"),
+        is_legitimate=not overall_is_spoof,
         overall_confidence=round(overall_conf, 2),
         accuracy=round(overall_conf, 2),
         risk_level=risk,
