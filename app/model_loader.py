@@ -101,7 +101,11 @@ class AASISTModelLoader:
             # 1. Energy Jitter (Natural Human Rhythm)
             # Humans have a natural 'pulsing' variance. AI is often too rhythmic or too flat.
             rms_frames = [torch.sqrt(torch.mean(waveform[0, i:i+160]**2)).item() for i in range(0, waveform.shape[-1]-160, 160)]
-            rms_std = (sum((x - (sum(rms_frames)/len(rms_frames)))**2 for x in rms_frames) / len(rms_frames))**0.5
+            if len(rms_frames) > 0:
+                rms_mean = sum(rms_frames) / len(rms_frames)
+                rms_std = (sum((x - rms_mean)**2 for x in rms_frames) / len(rms_frames))**0.5
+            else:
+                rms_std = 0.01  # Default to "Natural" if too short to check
             
             # 2. Digital Perfection Penalty
             zero_count = torch.sum(waveform == 0).item()
