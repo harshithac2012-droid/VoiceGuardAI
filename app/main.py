@@ -106,6 +106,7 @@ def generate_review(result: dict) -> tuple[list[str], list[str]]:
         return analysis, recs
 
     is_ai = prediction == "AI"
+    if is_ai:
         analysis.append("Detected high-frequency spectral artifacts consistent with AI synthesis engines.")
         analysis.append("Inconsistent vocal tract resonance patterns found in temporal graph analysis.")
         if conf > 90:
