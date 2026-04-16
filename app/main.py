@@ -27,12 +27,14 @@ async def lifespan(app: FastAPI):
     
     print("🚀 DeepShield AI — Starting Inference Server")
     
+    from app.long_audio_detector import LongAudioDetector
     model_loader = AASISTModelLoader(
         aasist_dir=settings.AASIST_DIR,
         model_variant=settings.MODEL_VARIANT,
         device=settings.DEVICE,
     )
     model_loader.load()
+    long_detector = LongAudioDetector(model_loader)
     audio_processor = AudioProcessor()
     
     print("✅ Server ready!")
