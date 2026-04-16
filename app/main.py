@@ -68,6 +68,7 @@ class PredictionResult(BaseModel):
     spoof_probability: float
     technical_analysis: list[str]  # Detailed review points
     recommendations: list[str]     # Improvisations/Actions
+    debug: Optional[dict] = None   # Raw model scores
     analysis_time_ms: float
 
 
@@ -192,6 +193,7 @@ async def predict_voice(file: UploadFile = File(...)):
         spoof_probability=result["spoof_probability"],
         technical_analysis=analysis,
         recommendations=recs,
+        debug=result.get("debug"),
         analysis_time_ms=round(elapsed_ms, 2),
     )
 

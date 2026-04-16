@@ -93,6 +93,16 @@ class AudioProcessor:
         waveform = torch.from_numpy(np.concatenate(samples)).unsqueeze(0)
         return waveform, sample_rate
     
+    @staticmethod
+    def apply_pre_emphasis(waveform: torch.Tensor, coefficient: float = 0.97) -> torch.Tensor:
+        """Applies pre-emphasis filter to boost speech clarity and suppress hum."""
+        return torch.cat((waveform[:, :1], waveform[:, 1:] - coefficient * waveform[:, :-1]), dim=1)
+
+    @staticmethod
+    def apply_high_pass(waveform: torch.Tensor, sample_rate: int, cutoff: float = 80.0) -> torch.Tensor:
+        """Removes low-frequency ambient noise (AC, fans, rumbling)."""
+        return torchaudio.functional.highpass_biquad(waveform, sample_rate, cutoff)
+
     def _preprocess(self, waveform: torch.Tensor, sample_rate: int) -> torch.Tensor:
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)
@@ -103,8 +113,16 @@ class AudioProcessor:
                 new_freq=self.target_sr
             )
             waveform = resampler(waveform)
+            
+        # 1. Forensic Cleaning
+        waveform = self.apply_high_pass(waveform, self.target_sr, cutoff=80.0)
+        waveform = self.apply_pre_emphasis(waveform)
         
-        # waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
+        # 2. Safe Normalization: -3dB Headroom to prevent clipping
+        max_val = torch.max(torch.abs(waveform))
+        if max_val > 1e-8:
+            waveform = (waveform / max_val) * 0.707
+            
         waveform = self._pad_or_trim(waveform)
         return waveform.squeeze(0)
     
@@ -114,9 +132,9 @@ class AudioProcessor:
         if current_length >= self.target_length:
             waveform = waveform[:, :self.target_length]
         else:
-            # Use zero-padding instead of repeating
-            padding_needed = self.target_length - current_length
-            waveform = torch.nn.functional.pad(waveform, (0, padding_needed))
+            # Reverting to repeat-padding which worked earlier
+            repeat_times = (self.target_length // current_length) + 1
+            waveform = waveform.repeat(1, repeat_times)[:, :self.target_length]
         
         return waveform
 
@@ -143,7 +161,7 @@ class AudioProcessor:
             resampler = torchaudio.transforms.Resample(sample_rate, self.target_sr)
             waveform = resampler(waveform)
         
-        # waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
+        waveform = waveform / (torch.max(torch.abs(waveform)) + 1e-8)
         
         total_samples = waveform.shape[-1]
         chunks = []
