@@ -1,9 +1,0 @@
-torch>=2.0.0
-torchaudio>=2.0.0
-numpy
-av
-soundfile
-fastapi>=0.100.0
-uvicorn[standard]>=0.23.0
-python-multipart
-pydantic>=2.0.0
